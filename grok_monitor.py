@@ -17,9 +17,6 @@ load_dotenv()
 # Database path
 IMESSAGE_DB = os.path.expanduser("~/Library/Messages/chat.db")
 
-# Track the last processed message ID
-LAST_MESSAGE_ID_FILE = "last_message_id.txt"
-
 # API Key rotation
 class APIKeyRotator:
     def __init__(self):
@@ -57,17 +54,18 @@ class APIKeyRotator:
         print(f"🔄 Rotating API key: {old_index + 1} → {self.current_index + 1}")
         return self.get_current_key()
 
-def get_last_processed_message_id():
-    """Get the last message ID we processed"""
-    if os.path.exists(LAST_MESSAGE_ID_FILE):
-        with open(LAST_MESSAGE_ID_FILE, 'r') as f:
-            return int(f.read().strip())
-    return 0
-
-def save_last_processed_message_id(message_id):
-    """Save the last processed message ID"""
-    with open(LAST_MESSAGE_ID_FILE, 'w') as f:
-        f.write(str(message_id))
+def get_current_max_message_id():
+    """Get the latest message ID from the database"""
+    try:
+        conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(ROWID) FROM message")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result[0] else 0
+    except Exception as e:
+        print(f"⚠️  Warning: Could not get max message ID: {e}")
+        return 0
 
 def check_for_grok_mentions(last_id):
     """Check for new messages containing @grok"""
@@ -104,6 +102,37 @@ def check_for_grok_mentions(last_id):
     conn.close()
     
     return mentions
+
+def parse_grok_limit(text, attributed_body):
+    """Extract message limit from @grok command (e.g., @grok 100)"""
+    import re
+    
+    # Try to get text from attributed body if text is None
+    message_text = text
+    if not message_text and attributed_body:
+        try:
+            decoded = attributed_body.decode('utf-8', errors='ignore')
+            if 'NSString' in decoded:
+                parts = decoded.split('NSString')
+                for part in parts[1:]:
+                    cleaned = ''.join(c for c in part if c.isprintable())
+                    if len(cleaned) > 2:
+                        message_text = cleaned[:200]
+                        break
+        except:
+            pass
+    
+    if not message_text:
+        return 60  # Default
+    
+    # Look for @grok followed by optional whitespace and a number
+    match = re.search(r'@?grok\s*(\d+)', message_text.lower())
+    if match:
+        limit = int(match.group(1))
+        # Cap between 10 and 500 messages
+        return min(max(limit, 10), 500)
+    
+    return 60  # Default
 
 def get_chat_messages(chat_id, limit=60):
     """Get recent messages from a chat for summarization"""
@@ -269,8 +298,10 @@ def monitor_loop():
         print(f"❌ {e}")
         return
     
-    last_id = get_last_processed_message_id()
+    # Get current latest message ID - only process new messages from this point forward
+    last_id = get_current_max_message_id()
     print(f"📍 Starting from message ID: {last_id}")
+    print("   (Only processing @grok mentions that arrive after this point)")
     print("   Press Ctrl+C to stop\n")
     
     try:
@@ -288,14 +319,17 @@ def monitor_loop():
                 print(f"   DEBUG - guid: {guid}")
                 print(f"   DEBUG - is_group_chat: {is_group_chat}")
                 
+                # Parse message limit from @grok command
+                message_limit = parse_grok_limit(text, attr_body)
+                print(f"   Message limit: {message_limit}")
+                
                 # Get recent messages for summary
                 print(f"   Fetching recent messages...")
-                messages = get_chat_messages(chat_id, limit=60)
+                messages = get_chat_messages(chat_id, limit=message_limit)
                 
                 if not messages:
                     print(f"   ⚠️  No messages to summarize")
                     last_id = msg_id
-                    save_last_processed_message_id(last_id)
                     continue
                 
                 print(f"   Found {len(messages)} messages to summarize")
@@ -350,14 +384,12 @@ def monitor_loop():
                 
                 # Update last processed ID
                 last_id = msg_id
-                save_last_processed_message_id(last_id)
             
             # Sleep before next check
             time.sleep(2)  # Check every 2 seconds
             
     except KeyboardInterrupt:
         print("\n\n👋 Grok Monitor stopped")
-        save_last_processed_message_id(last_id)
 
 if __name__ == "__main__":
     monitor_loop()
