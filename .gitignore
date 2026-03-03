@@ -8,5 +8,4 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
-grok_monitor.log
 recap_monitor.log

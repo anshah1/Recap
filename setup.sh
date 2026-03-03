@@ -1,7 +1,7 @@
 #!/bin/bash
-# Setup script for Grok Monitor
+# Setup script for Recap Monitor
 
-echo "🔧 Setting up Grok Monitor..."
+echo "🔧 Setting up Recap Monitor..."
 
 # Check if venv exists
 if [ ! -d ".venv" ]; then
@@ -33,4 +33,4 @@ pip list | grep -E "(google-genai|python-dotenv)"
 echo ""
 echo "🚀 To run the monitor:"
 echo "   source .venv/bin/activate"
-echo "   python3 grok_monitor.py"
+echo "   python3 recap_monitor.py"

@@ -2,13 +2,58 @@
 
 PLIST_FILE="com.recap.monitor.plist"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_FILE"
-SOURCE_PLIST="$(cd "$(dirname "$0")" && pwd)/$PLIST_FILE"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PYTHON_PATH="$PROJECT_DIR/.venv/bin/python3"
+SCRIPT_PATH="$PROJECT_DIR/recap_monitor.py"
+LOG_PATH="$PROJECT_DIR/recap_monitor.log"
 
 case "$1" in
     install)
         echo "📦 Installing Recap Monitor service..."
         mkdir -p "$HOME/Library/LaunchAgents"
-        cp "$SOURCE_PLIST" "$PLIST_PATH"
+        
+        # Generate plist with current user's paths
+        cat > "$PLIST_PATH" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.recap.monitor</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>$PYTHON_PATH</string>
+        <string>-u</string>
+        <string>$SCRIPT_PATH</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>$PROJECT_DIR</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>StandardOutPath</key>
+    <string>$LOG_PATH</string>
+    
+    <key>StandardErrorPath</key>
+    <string>$LOG_PATH</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+</dict>
+</plist>
+EOF
+        
         launchctl load "$PLIST_PATH"
         echo "✅ Service installed and started"
         echo "   Will auto-start on login/boot"
