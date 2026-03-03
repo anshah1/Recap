@@ -7,6 +7,7 @@ import sqlite3
 import os
 import time
 import subprocess
+import re
 from datetime import datetime, timedelta
 from google import genai
 from dotenv import load_dotenv
@@ -36,7 +37,7 @@ class APIKeyRotator:
         if not self.keys:
             raise ValueError("No API keys found in .env file")
         
-        print(f"🔑 Loaded {len(self.keys)} API key(s)")
+        print(f"Loaded {len(self.keys)} API key(s)")
     
     def get_current_key(self):
         return self.keys[self.current_index]
@@ -44,7 +45,7 @@ class APIKeyRotator:
     def rotate(self):
         old_index = self.current_index
         self.current_index = (self.current_index + 1) % len(self.keys)
-        print(f"🔄 Switching to API key {self.current_index + 1}/{len(self.keys)}")
+        print(f"Switching to API key {self.current_index + 1}/{len(self.keys)}")
         return self.get_current_key()
 
 def get_current_max_message_id():
@@ -57,7 +58,7 @@ def get_current_max_message_id():
         conn.close()
         return result[0] if result[0] else 0
     except Exception as e:
-        print(f"⚠️  Warning: Could not get max message ID: {e}")
+        print(f"Warning: Could not get max message ID: {e}")
         return 0
 
 def has_new_messages(last_id):
@@ -74,6 +75,22 @@ def has_new_messages(last_id):
     except Exception as e:
         print(f"Error checking for new messages: {e}")
         return False
+
+def extract_text_from_attributed_body(attributed_body):
+    """Extract readable text from attributedBody blob"""
+    if not attributed_body:
+        return None
+    try:
+        decoded = attributed_body.decode('utf-8', errors='ignore')
+        if 'NSString' in decoded:
+            parts = decoded.split('NSString')
+            for part in parts[1:]:
+                cleaned = ''.join(c for c in part if c.isprintable())
+                if len(cleaned) > 2:
+                    return cleaned[:200]
+    except:
+        pass
+    return None
 
 def check_for_recap_mentions(last_id):
     conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
@@ -109,21 +126,7 @@ def check_for_recap_mentions(last_id):
     return mentions
 
 def parse_recap_limit(text, attributed_body):
-    import re
-    
-    message_text = text
-    if not message_text and attributed_body:
-        try:
-            decoded = attributed_body.decode('utf-8', errors='ignore')
-            if 'NSString' in decoded:
-                parts = decoded.split('NSString')
-                for part in parts[1:]:
-                    cleaned = ''.join(c for c in part if c.isprintable())
-                    if len(cleaned) > 2:
-                        message_text = cleaned[:200]
-                        break
-        except:
-            pass
+    message_text = text or extract_text_from_attributed_body(attributed_body)
     
     if not message_text:
         return 60
@@ -162,19 +165,7 @@ def get_chat_messages(chat_id, limit=60):
     
     formatted_messages = []
     for text, attributed_body, is_from_me, date, sender_id in messages:
-        message_text = text
-        if not message_text and attributed_body:
-            try:
-                decoded = attributed_body.decode('utf-8', errors='ignore')
-                if 'NSString' in decoded:
-                    parts = decoded.split('NSString')
-                    for part in parts[1:]:
-                        cleaned = ''.join(c for c in part if c.isprintable())
-                        if len(cleaned) > 2:
-                            message_text = cleaned[:200]
-                            break
-            except:
-                pass
+        message_text = text or extract_text_from_attributed_body(attributed_body)
         
         if not message_text:
             continue
@@ -220,14 +211,8 @@ Summary:"""
     return response.text
 
 def is_rate_limit_error(error):
-    error_str = str(error).lower()
-    return any(phrase in error_str for phrase in [
-        'rate limit',
-        'quota',
-        'too many requests',
-        '429',
-        'resource_exhausted'
-    ])
+    error_str = str(error)
+    return '429' in error_str or 'Too Many Requests' in error_str
 
 def send_imessage(chat_identifier, message, is_group_chat=False):
     if is_group_chat:
@@ -255,22 +240,22 @@ def send_imessage(chat_identifier, message, is_group_chat=False):
         result = subprocess.run(['osascript', '-e', applescript, message], check=True, capture_output=True, text=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error sending recap: {e}")
+        print(f"Error sending recap: {e}")
         return False
 
 def monitor_loop():
-    print("🤖 Recap Monitor Starting...")
-    print("   Watching for @recap mentions in iMessage\n")
+    print("Recap Monitor Starting...")
+    print("Watching for @recap mentions in iMessage\n")
     
     try:
         key_rotator = APIKeyRotator()
     except ValueError as e:
-        print(f"❌ {e}")
+        print(f"Error: {e}")
         return
     
     last_id = get_current_max_message_id()
-    print(f"📍 Monitoring started (message ID: {last_id})")
-    print("   Press Ctrl+C to stop\n")
+    print(f"Monitoring started (message ID: {last_id})")
+    print("Press Ctrl+C to stop\n")
     
     try:
         while True:
@@ -287,12 +272,12 @@ def monitor_loop():
                 is_group_chat = chat_identifier.startswith('chat')
                 message_limit = parse_recap_limit(text, attr_body)
                 
-                print(f"\n📝 Recap requested in '{chat_name}' for {message_limit} messages")
+                print(f"\nRecap requested in '{chat_name}' for {message_limit} messages")
                 
                 messages = get_chat_messages(chat_id, limit=message_limit)
                 
                 if not messages:
-                    print(f"❌ No messages to recap")
+                    print(f"No messages to recap")
                     last_id = msg_id
                     continue
                 
@@ -303,20 +288,20 @@ def monitor_loop():
                     try:
                         current_key = key_rotator.get_current_key()
                         summary = generate_summary(messages, current_key, is_group_chat)
-                        print(f"✅ Recap generated")
+                        print("Recap generated")
                         break
                     except Exception as e:
                         if is_rate_limit_error(e):
-                            print(f"⚠️  Rate limit hit")
+                            print("Rate limit hit")
                             if retry < max_retries - 1:
                                 key_rotator.rotate()
                                 time.sleep(1)
                                 continue
                             else:
-                                print(f"❌ All API keys rate limited")
+                                print("All API keys rate limited")
                                 raise
                         else:
-                            print(f"❌ Error generating recap: {e}")
+                            print(f"Error generating recap: {e}")
                             raise
                 
                 if summary:
@@ -325,18 +310,18 @@ def monitor_loop():
                         success = send_imessage(send_to, f"📝 Chat Recap:\n\n{summary}", is_group_chat)
                         
                         if success:
-                            print(f"✅ Recap sent")
+                            print("Recap sent")
                         else:
-                            print(f"❌ Failed to send recap")
+                            print("Failed to send recap")
                     except Exception as e:
-                        print(f"❌ Error sending recap: {e}")
+                        print(f"Error sending recap: {e}")
                 
                 last_id = msg_id
             
             time.sleep(2)
             
     except KeyboardInterrupt:
-        print("\n\n👋 Recap Monitor stopped")
+        print("\n\nRecap Monitor stopped")
 
 if __name__ == "__main__":
     monitor_loop()
