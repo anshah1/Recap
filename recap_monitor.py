@@ -92,9 +92,23 @@ def extract_text_from_attributed_body(attributed_body):
         pass
     return None
 
-def check_for_recap_mentions(last_id):
+def check_for_recap_mentions(last_id, time_threshold_minutes=5):
+    """
+    Check for @recap mentions after last_id
+    
+    Args:
+        last_id: Last processed message ID
+        time_threshold_minutes: Only process messages from the last N minutes (prevents old messages on startup)
+    """
     conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
     cursor = conn.cursor()
+    
+    # Calculate timestamp threshold (Messages DB uses nanoseconds since 2001-01-01)
+    now = datetime.now()
+    threshold_time = now - timedelta(minutes=time_threshold_minutes)
+    reference_date = datetime(2001, 1, 1)
+    time_diff = (threshold_time - reference_date).total_seconds()
+    timestamp_threshold = int(time_diff * 1e9)
     
     query = """
     SELECT 
@@ -105,11 +119,13 @@ def check_for_recap_mentions(last_id):
         cmj.chat_id,
         c.chat_identifier,
         c.display_name,
-        c.guid
+        c.guid,
+        m.date
     FROM message m
     LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
     LEFT JOIN chat c ON cmj.chat_id = c.ROWID
     WHERE m.ROWID > ?
+        AND m.date > ?
         AND (
             m.text LIKE '%@recap%' 
             OR m.text LIKE '%recap%'
@@ -119,7 +135,7 @@ def check_for_recap_mentions(last_id):
     ORDER BY m.ROWID ASC
     """
     
-    cursor.execute(query, (last_id,))
+    cursor.execute(query, (last_id, timestamp_threshold))
     mentions = cursor.fetchall()
     conn.close()
     
@@ -245,6 +261,11 @@ def send_imessage(chat_identifier, message, is_group_chat=False):
 
 def monitor_loop():
     print("Recap Monitor Starting...")
+    print("Waiting 15 seconds for Messages DB to sync...\n")
+    
+    # Startup buffer to let Messages DB settle after boot/wake
+    time.sleep(15)
+    
     print("Watching for @recap mentions in iMessage\n")
     
     try:
@@ -266,7 +287,7 @@ def monitor_loop():
             mentions = check_for_recap_mentions(last_id)
             
             for mention in mentions:
-                msg_id, text, attr_body, is_from_me, chat_id, chat_identifier, display_name, guid = mention
+                msg_id, text, attr_body, is_from_me, chat_id, chat_identifier, display_name, guid, msg_date = mention
                 
                 chat_name = display_name or chat_identifier or "Unknown"
                 is_group_chat = chat_identifier.startswith('chat')
