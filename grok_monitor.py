@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Grok Monitor - Watches for @grok mentions in iMessage and auto-responds with summaries
+Recap Monitor - Watches for @recap mentions in iMessage and auto-responds with summaries
 """
 
 import sqlite3
@@ -11,19 +11,14 @@ from datetime import datetime, timedelta
 from google import genai
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
-# Database path
 IMESSAGE_DB = os.path.expanduser("~/Library/Messages/chat.db")
-
-# API Key rotation
 class APIKeyRotator:
     def __init__(self):
         self.keys = []
         self.current_index = 0
         
-        # Load all GEMINI_API_KEY_* from environment
         i = 1
         while True:
             key = os.getenv(f'GEMINI_API_KEY_{i}')
@@ -33,7 +28,6 @@ class APIKeyRotator:
             else:
                 break
         
-        # Fallback to single GEMINI_API_KEY if no numbered keys
         if not self.keys:
             single_key = os.getenv('GEMINI_API_KEY')
             if single_key:
@@ -48,10 +42,9 @@ class APIKeyRotator:
         return self.keys[self.current_index]
     
     def rotate(self):
-        """Switch to the next API key"""
         old_index = self.current_index
         self.current_index = (self.current_index + 1) % len(self.keys)
-        print(f"🔄 Rotating API key: {old_index + 1} → {self.current_index + 1}")
+        print(f"🔄 Switching to API key {self.current_index + 1}/{len(self.keys)}")
         return self.get_current_key()
 
 def get_current_max_message_id():
@@ -67,13 +60,25 @@ def get_current_max_message_id():
         print(f"⚠️  Warning: Could not get max message ID: {e}")
         return 0
 
-def check_for_grok_mentions(last_id):
-    """Check for new messages containing @grok"""
+def has_new_messages(last_id):
+    try:
+        conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(ROWID) FROM message")
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result and result[0]:
+            return result[0] > last_id
+        return False
+    except Exception as e:
+        print(f"Error checking for new messages: {e}")
+        return False
+
+def check_for_recap_mentions(last_id):
     conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
     cursor = conn.cursor()
     
-    # Look for messages after last_id that contain @grok
-    # Search in both text field and attributedBody (hex pattern 4067726F6B = @grok)
     query = """
     SELECT 
         m.ROWID,
@@ -89,10 +94,10 @@ def check_for_grok_mentions(last_id):
     LEFT JOIN chat c ON cmj.chat_id = c.ROWID
     WHERE m.ROWID > ?
         AND (
-            m.text LIKE '%@grok%' 
-            OR m.text LIKE '%grok%'
-            OR hex(m.attributedBody) LIKE '%4067726F6B%'
-            OR hex(m.attributedBody) LIKE '%67726F6B%'
+            m.text LIKE '%@recap%' 
+            OR m.text LIKE '%recap%'
+            OR hex(m.attributedBody) LIKE '%407265636170%'
+            OR hex(m.attributedBody) LIKE '%7265636170%'
         )
     ORDER BY m.ROWID ASC
     """
@@ -103,11 +108,9 @@ def check_for_grok_mentions(last_id):
     
     return mentions
 
-def parse_grok_limit(text, attributed_body):
-    """Extract message limit from @grok command (e.g., @grok 100)"""
+def parse_recap_limit(text, attributed_body):
     import re
     
-    # Try to get text from attributed body if text is None
     message_text = text
     if not message_text and attributed_body:
         try:
@@ -123,19 +126,16 @@ def parse_grok_limit(text, attributed_body):
             pass
     
     if not message_text:
-        return 60  # Default
+        return 60
     
-    # Look for @grok followed by optional whitespace and a number
-    match = re.search(r'@?grok\s*(\d+)', message_text.lower())
+    match = re.search(r'@?recap\s*(\d+)', message_text.lower())
     if match:
         limit = int(match.group(1))
-        # Cap between 10 and 500 messages
         return min(max(limit, 10), 500)
     
-    return 60  # Default
+    return 60 
 
 def get_chat_messages(chat_id, limit=60):
-    """Get recent messages from a chat for summarization"""
     conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
     cursor = conn.cursor()
     
@@ -158,13 +158,10 @@ def get_chat_messages(chat_id, limit=60):
     messages = cursor.fetchall()
     conn.close()
     
-    # Reverse to get chronological order
     messages.reverse()
     
-    # Format messages
     formatted_messages = []
     for text, attributed_body, is_from_me, date, sender_id in messages:
-        # Extract text
         message_text = text
         if not message_text and attributed_body:
             try:
@@ -182,9 +179,8 @@ def get_chat_messages(chat_id, limit=60):
         if not message_text:
             continue
         
-        # Skip messages that contain @grok or grok command
         message_lower = message_text.lower()
-        if '@grok' in message_lower or (message_lower.strip().startswith('grok') and len(message_lower.strip().split()) <= 2):
+        if '@recap' in message_lower or (message_lower.strip().startswith('recap') and len(message_lower.strip().split()) <= 2):
             continue
             
         readable_date = datetime(2001, 1, 1) + timedelta(seconds=date/1e9)
@@ -200,7 +196,6 @@ def get_chat_messages(chat_id, limit=60):
     return formatted_messages
 
 def generate_summary(messages, api_key, is_group_chat=True):
-    """Generate summary using Gemini"""
     os.environ['GOOGLE_API_KEY'] = api_key
     client = genai.Client()
     
@@ -211,26 +206,12 @@ def generate_summary(messages, api_key, is_group_chat=True):
     
     conversation_text = "\n".join(conversation)
     
-    # Context-aware prompt based on chat type
     chat_type = "group chat" if is_group_chat else "conversation"
     prompt = f"""Summarize this {chat_type} in 3-4 sentences. Don't specify "me". You can reference specific moments, don't be too vague:
 
 {conversation_text}
 
 Summary:"""
-    
-    # Debug logging
-    print(f"\n   📊 DEBUG - Gemini Request Details:")
-    print(f"      Messages: {len(messages)}")
-    print(f"      Conversation length: {len(conversation_text)} chars")
-    print(f"      Total prompt length: {len(prompt)} chars")
-    print(f"\n   📝 DEBUG - Conversation being sent:")
-    print(f"   {'-'*60}")
-    for line in conversation_text.split('\n')[:10]:  # Show first 10 messages
-        print(f"   {line}")
-    if len(conversation) > 10:
-        print(f"   ... and {len(conversation) - 10} more messages")
-    print(f"   {'-'*60}\n")
     
     response = client.models.generate_content(
         model="gemini-2.5-flash",
@@ -239,7 +220,6 @@ Summary:"""
     return response.text
 
 def is_rate_limit_error(error):
-    """Check if error is a rate limit error"""
     error_str = str(error).lower()
     return any(phrase in error_str for phrase in [
         'rate limit',
@@ -250,11 +230,7 @@ def is_rate_limit_error(error):
     ])
 
 def send_imessage(chat_identifier, message, is_group_chat=False):
-    """Send an iMessage using AppleScript"""
-    # Check if it's a group chat (guid format) or individual (phone/email)
     if is_group_chat:
-        # Group chat - use guid with chat id
-        print(f"   Using group chat mode with identifier: {chat_identifier}")
         applescript = f'''
         on run argv
             set theMessage to item 1 of argv
@@ -264,8 +240,6 @@ def send_imessage(chat_identifier, message, is_group_chat=False):
         end run
         '''
     else:
-        # Individual chat - use buddy with phone/email
-        print(f"   Using individual chat mode with identifier: {chat_identifier}")
         applescript = f'''
         on run argv
             set theMessage to item 1 of argv
@@ -281,61 +255,47 @@ def send_imessage(chat_identifier, message, is_group_chat=False):
         result = subprocess.run(['osascript', '-e', applescript, message], check=True, capture_output=True, text=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to send message: {e}")
-        if hasattr(e, 'stderr') and e.stderr:
-            print(f"   stderr: {e.stderr}")
+        print(f"❌ Error sending recap: {e}")
         return False
 
 def monitor_loop():
-    """Main monitoring loop"""
-    print("🤖 Grok Monitor Starting...")
-    print("   Watching for @grok mentions in iMessage\n")
+    print("🤖 Recap Monitor Starting...")
+    print("   Watching for @recap mentions in iMessage\n")
     
-    # Initialize API key rotator
     try:
         key_rotator = APIKeyRotator()
     except ValueError as e:
         print(f"❌ {e}")
         return
     
-    # Get current latest message ID - only process new messages from this point forward
     last_id = get_current_max_message_id()
-    print(f"📍 Starting from message ID: {last_id}")
-    print("   (Only processing @grok mentions that arrive after this point)")
+    print(f"📍 Monitoring started (message ID: {last_id})")
     print("   Press Ctrl+C to stop\n")
     
     try:
         while True:
-            mentions = check_for_grok_mentions(last_id)
+            if not has_new_messages(last_id):
+                time.sleep(2)
+                continue
+            
+            mentions = check_for_recap_mentions(last_id)
             
             for mention in mentions:
                 msg_id, text, attr_body, is_from_me, chat_id, chat_identifier, display_name, guid = mention
                 
                 chat_name = display_name or chat_identifier or "Unknown"
                 is_group_chat = chat_identifier.startswith('chat')
-                print(f"\n🔔 @grok mentioned in: {chat_name}")
-                print(f"   Chat ID: {chat_id}, Message ID: {msg_id}")
-                print(f"   DEBUG - chat_identifier: {chat_identifier}")
-                print(f"   DEBUG - guid: {guid}")
-                print(f"   DEBUG - is_group_chat: {is_group_chat}")
+                message_limit = parse_recap_limit(text, attr_body)
                 
-                # Parse message limit from @grok command
-                message_limit = parse_grok_limit(text, attr_body)
-                print(f"   Message limit: {message_limit}")
+                print(f"\n📝 Recap requested in '{chat_name}' for {message_limit} messages")
                 
-                # Get recent messages for summary
-                print(f"   Fetching recent messages...")
                 messages = get_chat_messages(chat_id, limit=message_limit)
                 
                 if not messages:
-                    print(f"   ⚠️  No messages to summarize")
+                    print(f"❌ No messages to recap")
                     last_id = msg_id
                     continue
                 
-                print(f"   Found {len(messages)} messages to summarize")
-                
-                # Generate summary with retry logic for rate limiting
-                print(f"   🤔 Generating summary with Gemini...")
                 summary = None
                 max_retries = len(key_rotator.keys)
                 
@@ -343,53 +303,40 @@ def monitor_loop():
                     try:
                         current_key = key_rotator.get_current_key()
                         summary = generate_summary(messages, current_key, is_group_chat)
-                        print(f"   ✅ Summary generated!")
-                        print(f"\n   Summary Preview:")
-                        print(f"   {summary[:200]}...\n")
+                        print(f"✅ Recap generated")
                         break
                     except Exception as e:
                         if is_rate_limit_error(e):
-                            print(f"   ⚠️  Rate limit hit on key {key_rotator.current_index + 1}")
+                            print(f"⚠️  Rate limit hit")
                             if retry < max_retries - 1:
                                 key_rotator.rotate()
-                                print(f"   🔄 Retrying with next key...")
                                 time.sleep(1)
                                 continue
                             else:
-                                print(f"   ❌ All API keys rate limited!")
+                                print(f"❌ All API keys rate limited")
                                 raise
                         else:
-                            print(f"   ❌ Error: {e}")
+                            print(f"❌ Error generating recap: {e}")
                             raise
                 
                 if summary:
                     try:
-                    
-                        # Send response - use guid for group chats, chat_identifier for individual
                         send_to = guid if is_group_chat else chat_identifier
-                        print(f"   DEBUG - send_to: {send_to}")
-                        print(f"   📤 Attempting to send response...")
-                        success = send_imessage(send_to, f"📝 Chat Summary:\n\n{summary}", is_group_chat)
+                        success = send_imessage(send_to, f"📝 Chat Recap:\n\n{summary}", is_group_chat)
                         
                         if success:
-                            print(f"   ✅ Response sent!")
+                            print(f"✅ Recap sent")
                         else:
-                            print(f"   ℹ️  For group chats, you may need to send manually")
-                            print(f"\n   Copy this to send:")
-                            print(f"   {'-'*60}")
-                            print(f"   {summary}")
-                            print(f"   {'-'*60}\n")
+                            print(f"❌ Failed to send recap")
                     except Exception as e:
-                        print(f"   ❌ Error sending message: {e}")
+                        print(f"❌ Error sending recap: {e}")
                 
-                # Update last processed ID
                 last_id = msg_id
             
-            # Sleep before next check
-            time.sleep(2)  # Check every 2 seconds
+            time.sleep(2)
             
     except KeyboardInterrupt:
-        print("\n\n👋 Grok Monitor stopped")
+        print("\n\n👋 Recap Monitor stopped")
 
 if __name__ == "__main__":
     monitor_loop()
