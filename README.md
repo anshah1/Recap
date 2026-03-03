@@ -1,10 +1,10 @@
 # 📝 Recap - iMessage Chat Summarizer
 
-Automatically summarize iMessage conversations using Gemini AI. Just type `@recap` in any chat and get an instant AI-generated summary sent right back to you.
+Automatically summarize iMessage conversations using Gemini AI. Anyone in your chats can type `@recap`, and get an instant AI-generated summary sent right back to you.
 
 ## 🚀 Usage
 
-Once set up, using Recap is simple:
+Once set up, anyone in any iMessage conversation with you can use Recap:
 
 ### In any iMessage conversation:
 
@@ -21,7 +21,7 @@ Gets a summary of the last 60 messages
 Summarizes the last 100 messages (range: 10-500)
 
 The bot will:
-1. ✅ Detect your @recap mention
+1. ✅ Detect a @recap mention in your messages
 2. 📚 Fetch the requested number of recent messages  
 3. 🤖 Generate an AI summary using Gemini
 4. 💬 Send the summary back to the chat automatically
