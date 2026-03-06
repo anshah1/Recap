@@ -92,50 +92,78 @@ def extract_text_from_attributed_body(attributed_body):
         pass
     return None
 
-def check_for_recap_mentions(last_id, time_threshold_minutes=5):
+def check_for_recap_mentions(last_id, time_threshold_minutes=None):
     """
     Check for @recap mentions after last_id
     
     Args:
         last_id: Last processed message ID
         time_threshold_minutes: Only process messages from the last N minutes (prevents old messages on startup)
+                                If None, no time filtering is applied
     """
     conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
     cursor = conn.cursor()
     
-    # Calculate timestamp threshold (Messages DB uses nanoseconds since 2001-01-01)
-    now = datetime.now()
-    threshold_time = now - timedelta(minutes=time_threshold_minutes)
-    reference_date = datetime(2001, 1, 1)
-    time_diff = (threshold_time - reference_date).total_seconds()
-    timestamp_threshold = int(time_diff * 1e9)
+    # Build query with optional time threshold
+    if time_threshold_minutes is not None:
+        # Calculate timestamp threshold (Messages DB uses nanoseconds since 2001-01-01)
+        now = datetime.now()
+        threshold_time = now - timedelta(minutes=time_threshold_minutes)
+        reference_date = datetime(2001, 1, 1)
+        time_diff = (threshold_time - reference_date).total_seconds()
+        timestamp_threshold = int(time_diff * 1e9)
+        
+        query = """
+        SELECT 
+            m.ROWID,
+            m.text,
+            m.attributedBody,
+            m.is_from_me,
+            cmj.chat_id,
+            c.chat_identifier,
+            c.display_name,
+            c.guid,
+            m.date
+        FROM message m
+        LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+        LEFT JOIN chat c ON cmj.chat_id = c.ROWID
+        WHERE m.ROWID > ?
+            AND m.date > ?
+            AND (
+                m.text LIKE '%@recap%' 
+                OR m.text LIKE '%recap%'
+                OR hex(m.attributedBody) LIKE '%407265636170%'
+                OR hex(m.attributedBody) LIKE '%7265636170%'
+            )
+        ORDER BY m.ROWID ASC
+        """
+        cursor.execute(query, (last_id, timestamp_threshold))
+    else:
+        query = """
+        SELECT 
+            m.ROWID,
+            m.text,
+            m.attributedBody,
+            m.is_from_me,
+            cmj.chat_id,
+            c.chat_identifier,
+            c.display_name,
+            c.guid,
+            m.date
+        FROM message m
+        LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+        LEFT JOIN chat c ON cmj.chat_id = c.ROWID
+        WHERE m.ROWID > ?
+            AND (
+                m.text LIKE '%@recap%' 
+                OR m.text LIKE '%recap%'
+                OR hex(m.attributedBody) LIKE '%407265636170%'
+                OR hex(m.attributedBody) LIKE '%7265636170%'
+            )
+        ORDER BY m.ROWID ASC
+        """
+        cursor.execute(query, (last_id,))
     
-    query = """
-    SELECT 
-        m.ROWID,
-        m.text,
-        m.attributedBody,
-        m.is_from_me,
-        cmj.chat_id,
-        c.chat_identifier,
-        c.display_name,
-        c.guid,
-        m.date
-    FROM message m
-    LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-    LEFT JOIN chat c ON cmj.chat_id = c.ROWID
-    WHERE m.ROWID > ?
-        AND m.date > ?
-        AND (
-            m.text LIKE '%@recap%' 
-            OR m.text LIKE '%recap%'
-            OR hex(m.attributedBody) LIKE '%407265636170%'
-            OR hex(m.attributedBody) LIKE '%7265636170%'
-        )
-    ORDER BY m.ROWID ASC
-    """
-    
-    cursor.execute(query, (last_id, timestamp_threshold))
     mentions = cursor.fetchall()
     conn.close()
     
@@ -278,13 +306,17 @@ def monitor_loop():
     print(f"Monitoring started (message ID: {last_id})")
     print("Press Ctrl+C to stop\n")
     
+    first_check = True
+    
     try:
         while True:
             if not has_new_messages(last_id):
                 time.sleep(2)
                 continue
             
-            mentions = check_for_recap_mentions(last_id)
+            # Only apply time threshold on first check to avoid processing old messages on startup
+            mentions = check_for_recap_mentions(last_id, time_threshold_minutes=5 if first_check else None)
+            first_check = False
             
             for mention in mentions:
                 msg_id, text, attr_body, is_from_me, chat_id, chat_identifier, display_name, guid, msg_date = mention
