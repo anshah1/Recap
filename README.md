@@ -58,9 +58,9 @@ The monitor runs automatically in the background when your Mac is on. To manage 
 - 50MB free disk space
 
 **API Requirements:**
-- Google Gemini API key(s) - **100% FREE** (no credit card needed)
-- Get your first key: https://aistudio.google.com/app/apikey
-- Optional: Create multiple Google Cloud Projects for higher rate limits (see Advanced Configuration)
+- Google Gemini API key - **100% FREE** (no credit card needed)
+- Get your key: https://aistudio.google.com/app/apikey
+- Rate limiting is handled by rotating between multiple Gemini models automatically
 
 ### Step 1: Clone and Navigate
 
@@ -89,18 +89,12 @@ Create a `.env` file in the project directory:
 nano .env
 ```
 
-Add your Gemini API key(s):
+Add your Gemini API key:
 ```env
-# Single key (most users)
 GEMINI_API_KEY=your_api_key_here
-
-# Multiple keys (one per Google Cloud Project for higher rate limits)
-GEMINI_API_KEY_1=your_first_key
-GEMINI_API_KEY_2=your_second_key
-GEMINI_API_KEY_3=your_third_key
 ```
 
-**🎓 Tip:** Gemini API is free for everyone. One key is usually enough, but if you hit rate limits, create multiple Google Cloud Projects (not just keys) and add one key per project. Rate limits are per project, not per key.
+**🎓 Tip:** Gemini API is free for everyone. Rate limits are per model, so Recap automatically rotates through 7 different Gemini models (2.5 Flash, 2.5 Pro, 2.0 Flash, etc.) when one hits its limit, giving you effectively 7x the capacity with just one API key.
 
 Save and exit (`Ctrl+X`, then `Y`, then `Enter`)
 
@@ -160,7 +154,7 @@ Expected output:
 🤖 Recap Monitor Starting...
    Watching for @recap mentions in iMessage
 
-🔑 Loaded 1 API key(s)
+🔑 Loaded 7 model(s) for rotation
 📍 Monitoring started (message ID: 456701)
    Press Ctrl+C to stop
 ```
@@ -217,16 +211,19 @@ Edit `recap_monitor.py`, find `time.sleep(2)`:
 time.sleep(2)  # Change to 5 for less frequent checks
 ```
 
-### Multiple API Keys for Higher Capacity
+### Model Rotation for Rate Limiting
 
-To increase rate limits, create multiple Google Cloud Projects and add one key per project:
+Recap automatically handles rate limits by rotating through 7 different Gemini models:
 
-```env
-GEMINI_API_KEY_1=key_from_project_one
-GEMINI_API_KEY_2=key_from_project_two
-```
+1. Gemini 2.5 Flash
+2. Gemini 2.5 Pro
+3. Gemini 2 Flash
+4. Gemini 2 Flash Exp
+5. Gemini 2 Flash Lite
+6. Gemini 3.1 Pro
+7. Gemini 3.1 Flash Lite
 
-The bot automatically rotates to the next key when one hits its limit. Create projects at https://console.cloud.google.com/projectcreate
+When a model hits its rate limit, the bot automatically switches to the next model. This happens transparently - you'll see it in the logs but won't need to do anything. Rate limits are per model, not per API key, so this approach gives you much higher capacity without needing multiple projects.
 
 ---
 
@@ -241,8 +238,9 @@ The bot automatically rotates to the next key when one hits its limit. Create pr
 
 **Common issues:**
 - ❌ "unable to open database file" → Grant Full Disk Access (Step 4a)
-- ❌ "No API keys found" → Check your `.env` file (Step 3)
+- ❌ "GEMINI_API_KEY not found" → Check your `.env` file (Step 3)
 - ❌ "ImportError: No module named google" → Run `./setup.sh` again
+- ❌ "All models rate limited" → Wait a few minutes, or check your API quota at https://aistudio.google.com/
 
 ### Bot not responding to @recap
 

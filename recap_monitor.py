@@ -15,38 +15,36 @@ from dotenv import load_dotenv
 load_dotenv()
 
 IMESSAGE_DB = os.path.expanduser("~/Library/Messages/chat.db")
-class APIKeyRotator:
+
+class ModelRotator:
     def __init__(self):
-        self.keys = []
+        # Model rotation order - rate limits are per model, not per key
+        self.models = [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-exp",
+            "gemini-2.0-flash-lite",
+            "gemini-3.1-pro",
+            "gemini-3.1-flash-lite"
+        ]
         self.current_index = 0
         
-        i = 1
-        while True:
-            key = os.getenv(f'GEMINI_API_KEY_{i}')
-            if key:
-                self.keys.append(key)
-                i += 1
-            else:
-                break
+        # Verify API key exists
+        api_key = os.getenv('GEMINI_API_KEY')
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY not found in .env file")
         
-        if not self.keys:
-            single_key = os.getenv('GEMINI_API_KEY')
-            if single_key:
-                self.keys.append(single_key)
-        
-        if not self.keys:
-            raise ValueError("No API keys found in .env file")
-        
-        print(f"Loaded {len(self.keys)} API key(s)")
+        print(f"Loaded {len(self.models)} model(s) for rotation")
     
-    def get_current_key(self):
-        return self.keys[self.current_index]
+    def get_current_model(self):
+        return self.models[self.current_index]
     
     def rotate(self):
         old_index = self.current_index
-        self.current_index = (self.current_index + 1) % len(self.keys)
-        print(f"Switching to API key {self.current_index + 1}/{len(self.keys)}")
-        return self.get_current_key()
+        self.current_index = (self.current_index + 1) % len(self.models)
+        print(f"Rotating to model: {self.models[self.current_index]} ({self.current_index + 1}/{len(self.models)})")
+        return self.get_current_model()
 
 def get_current_max_message_id():
     """Get the latest message ID from the database"""
@@ -230,7 +228,10 @@ def get_chat_messages(chat_id, limit=60):
     
     return formatted_messages
 
-def generate_summary(messages, api_key, is_group_chat=True):
+def generate_summary(messages, model, is_group_chat=True):
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY environment variable not set")
     os.environ['GOOGLE_API_KEY'] = api_key
     client = genai.Client()
     
@@ -249,7 +250,7 @@ def generate_summary(messages, api_key, is_group_chat=True):
 Summary:"""
     
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=model,
         contents=prompt
     )
     return response.text
@@ -297,7 +298,7 @@ def monitor_loop():
     print("Watching for @recap mentions in iMessage\n")
     
     try:
-        key_rotator = APIKeyRotator()
+        model_rotator = ModelRotator()
     except ValueError as e:
         print(f"Error: {e}")
         return
@@ -335,23 +336,23 @@ def monitor_loop():
                     continue
                 
                 summary = None
-                max_retries = len(key_rotator.keys)
+                max_retries = len(model_rotator.models)
                 
                 for retry in range(max_retries):
+                    current_model = model_rotator.get_current_model()
                     try:
-                        current_key = key_rotator.get_current_key()
-                        summary = generate_summary(messages, current_key, is_group_chat)
-                        print("Recap generated")
+                        summary = generate_summary(messages, current_model, is_group_chat)
+                        print(f"Recap generated with {current_model}")
                         break
                     except Exception as e:
                         if is_rate_limit_error(e):
-                            print("Rate limit hit")
+                            print(f"Rate limit hit on {current_model}")
                             if retry < max_retries - 1:
-                                key_rotator.rotate()
+                                model_rotator.rotate()
                                 time.sleep(1)
                                 continue
                             else:
-                                print("All API keys rate limited")
+                                print("All models rate limited")
                                 raise
                         else:
                             print(f"Error generating recap: {e}")
