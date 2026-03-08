@@ -34,8 +34,6 @@ class ModelRotator:
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
             raise ValueError("GEMINI_API_KEY not found in .env file")
-        
-        print(f"Loaded {len(self.models)} model(s) for rotation")
     
     def get_current_model(self):
         return self.models[self.current_index]
@@ -60,19 +58,9 @@ def get_current_max_message_id():
         return 0
 
 def has_new_messages(last_id):
-    try:
-        conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
-        cursor = conn.cursor()
-        cursor.execute("SELECT MAX(ROWID) FROM message")
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result and result[0]:
-            return result[0] > last_id
-        return False
-    except Exception as e:
-        print(f"Error checking for new messages: {e}")
-        return False
+    """Check if there are new messages since last_id"""
+    current_max = get_current_max_message_id()
+    return current_max > last_id
 
 def extract_text_from_attributed_body(attributed_body):
     """Extract readable text from attributedBody blob"""
@@ -97,67 +85,44 @@ def check_for_recap_mentions(last_id, time_threshold_minutes=None):
     Args:
         last_id: Last processed message ID
         time_threshold_minutes: Only process messages from the last N minutes (prevents old messages on startup)
-                                If None, no time filtering is applied
     """
     conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
     cursor = conn.cursor()
     
-    # Build query with optional time threshold
+    query = """
+    SELECT 
+        m.ROWID,
+        m.text,
+        m.attributedBody,
+        m.is_from_me,
+        cmj.chat_id,
+        c.chat_identifier,
+        c.display_name,
+        c.guid,
+        m.date
+    FROM message m
+    LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+    LEFT JOIN chat c ON cmj.chat_id = c.ROWID
+    WHERE m.ROWID > ?
+        AND (
+            m.text LIKE '%@recap%' 
+            OR hex(m.attributedBody) LIKE '%407265636170%'
+        )
+    ORDER BY m.ROWID ASC
+    """
+    
+    # Add time filter if specified
+    params = [last_id]
     if time_threshold_minutes is not None:
-        # Calculate timestamp threshold (Messages DB uses nanoseconds since 2001-01-01)
-        now = datetime.now()
-        threshold_time = now - timedelta(minutes=time_threshold_minutes)
+        threshold_time = datetime.now() - timedelta(minutes=time_threshold_minutes)
         reference_date = datetime(2001, 1, 1)
         time_diff = (threshold_time - reference_date).total_seconds()
         timestamp_threshold = int(time_diff * 1e9)
         
-        query = """
-        SELECT 
-            m.ROWID,
-            m.text,
-            m.attributedBody,
-            m.is_from_me,
-            cmj.chat_id,
-            c.chat_identifier,
-            c.display_name,
-            c.guid,
-            m.date
-        FROM message m
-        LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-        LEFT JOIN chat c ON cmj.chat_id = c.ROWID
-        WHERE m.ROWID > ?
-            AND m.date > ?
-            AND (
-                m.text LIKE '%@recap%' 
-                OR hex(m.attributedBody) LIKE '%407265636170%'
-            )
-        ORDER BY m.ROWID ASC
-        """
-        cursor.execute(query, (last_id, timestamp_threshold))
-    else:
-        query = """
-        SELECT 
-            m.ROWID,
-            m.text,
-            m.attributedBody,
-            m.is_from_me,
-            cmj.chat_id,
-            c.chat_identifier,
-            c.display_name,
-            c.guid,
-            m.date
-        FROM message m
-        LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-        LEFT JOIN chat c ON cmj.chat_id = c.ROWID
-        WHERE m.ROWID > ?
-            AND (
-                m.text LIKE '%@recap%' 
-                OR hex(m.attributedBody) LIKE '%407265636170%'
-            )
-        ORDER BY m.ROWID ASC
-        """
-        cursor.execute(query, (last_id,))
+        query = query.replace("WHERE m.ROWID > ?", "WHERE m.ROWID > ? AND m.date > ?")
+        params.append(timestamp_threshold)
     
+    cursor.execute(query, params)
     mentions = cursor.fetchall()
     conn.close()
     
@@ -208,8 +173,9 @@ def get_chat_messages(chat_id, limit=60):
         if not message_text:
             continue
         
-        message_lower = message_text.lower()
-        if '@recap' in message_lower or (message_lower.strip().startswith('recap') and len(message_lower.strip().split()) <= 2):
+        # Skip @recap mentions
+        message_lower = message_text.lower().strip()
+        if '@recap' in message_lower or (message_lower.startswith('recap') and len(message_lower.split()) <= 2):
             continue
             
         readable_date = datetime(2001, 1, 1) + timedelta(seconds=date/1e9)
@@ -332,26 +298,24 @@ def monitor_loop():
                     continue
                 
                 summary = None
-                max_retries = len(model_rotator.models)
                 
-                for retry in range(max_retries):
+                for retry in range(len(model_rotator.models)):
                     current_model = model_rotator.get_current_model()
                     try:
                         summary = generate_summary(messages, current_model, is_group_chat)
                         print(f"Recap generated with {current_model}")
                         break
                     except Exception as e:
-                        if is_rate_limit_error(e):
-                            print(f"Rate limit hit on {current_model}")
-                            if retry < max_retries - 1:
-                                model_rotator.rotate()
-                                time.sleep(1)
-                                continue
-                            else:
-                                print("All models rate limited")
-                                raise
-                        else:
+                        if not is_rate_limit_error(e):
                             print(f"Error generating recap: {e}")
+                            raise
+                        
+                        print(f"Rate limit hit on {current_model}")
+                        if retry < len(model_rotator.models) - 1:
+                            model_rotator.rotate()
+                            time.sleep(1)
+                        else:
+                            print("All models rate limited")
                             raise
                 
                 if summary:

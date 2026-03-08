@@ -31,7 +31,10 @@ The bot will:
 📝 Chat Recap:
 
 The conversation centered around coordinating study plans for the upcoming EECS 281 
-midterm. Multiple participants expressed concerns about the difficulty of priority queue free response problems. One member suggested forming a study group at "the UGLI" tomorrow at 6 PM, but another pointed out that because it's a Friday, they would have to take "Commuter North" to "The Dude".
+midterm. Multiple participants expressed concerns about the difficulty of priority queue
+free response problems. One member suggested forming a study group at "the UGLI" tomorrow 
+at 6 PM, but another pointed out that because it's a Friday, they would have to take 
+"Commuter North" to "The Dude".
 ```
 
 ### Service Management
@@ -58,7 +61,7 @@ The monitor runs automatically in the background when your Mac is on. To manage 
 - 50MB free disk space
 
 **API Requirements:**
-- Google Gemini API key - **100% FREE** (no credit card needed)
+- Google Gemini API key - **100% FREE**
 - Get your key: https://aistudio.google.com/app/apikey
 - Rate limiting is handled by rotating between multiple Gemini models automatically
 
@@ -94,9 +97,7 @@ Add your Gemini API key:
 GEMINI_API_KEY=your_api_key_here
 ```
 
-**🎓 Tip:** Gemini API is free for everyone. Rate limits are per model, so Recap automatically rotates through 7 different Gemini models (2.5 Flash, 2.5 Pro, 2.0 Flash, etc.) when one hits its limit, giving you effectively 7x the capacity with just one API key.
-
-Save and exit (`Ctrl+X`, then `Y`, then `Enter`)
+**🎓 Tip:** Gemini API is free for everyone. Rate limits are per model, so Recap automatically rotates through 7 different Gemini models when one hits its limit, giving you effectively 7x the capacity with just one API key.
 
 ### Step 4: Grant Permissions
 
@@ -154,7 +155,6 @@ Expected output:
 🤖 Recap Monitor Starting...
    Watching for @recap mentions in iMessage
 
-🔑 Loaded 7 model(s) for rotation
 📍 Monitoring started (message ID: 456701)
    Press Ctrl+C to stop
 ```
@@ -290,7 +290,7 @@ Re-install the service:
 
 **Network:** Only when @recap is triggered (~1-50KB per request)
 
-**Startup Time:** Instant if already running, ~2 seconds for first launch
+**Startup Time:** Instant if already running, ~10 seconds for first launch
 
 ---
 
