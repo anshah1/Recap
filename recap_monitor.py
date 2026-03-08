@@ -129,9 +129,7 @@ def check_for_recap_mentions(last_id, time_threshold_minutes=None):
             AND m.date > ?
             AND (
                 m.text LIKE '%@recap%' 
-                OR m.text LIKE '%recap%'
                 OR hex(m.attributedBody) LIKE '%407265636170%'
-                OR hex(m.attributedBody) LIKE '%7265636170%'
             )
         ORDER BY m.ROWID ASC
         """
@@ -154,9 +152,7 @@ def check_for_recap_mentions(last_id, time_threshold_minutes=None):
         WHERE m.ROWID > ?
             AND (
                 m.text LIKE '%@recap%' 
-                OR m.text LIKE '%recap%'
                 OR hex(m.attributedBody) LIKE '%407265636170%'
-                OR hex(m.attributedBody) LIKE '%7265636170%'
             )
         ORDER BY m.ROWID ASC
         """
