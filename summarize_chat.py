@@ -16,6 +16,22 @@ load_dotenv()
 # Database path
 IMESSAGE_DB = os.path.expanduser("~/Library/Messages/chat.db")
 
+def extract_text_from_attributed_body(attributed_body):
+    """Extract readable text from attributedBody blob"""
+    if not attributed_body:
+        return None
+    try:
+        decoded = attributed_body.decode('utf-8', errors='ignore')
+        if 'NSString' in decoded:
+            parts = decoded.split('NSString')
+            for part in parts[1:]:
+                cleaned = ''.join(c for c in part if c.isprintable())
+                if len(cleaned) > 2:
+                    return cleaned[:200]
+    except Exception:
+        pass
+    return None
+
 def get_chats():
     """Get list of available chats"""
     conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
@@ -47,11 +63,6 @@ def get_messages(chat_id, limit=100):
     conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
     cursor = conn.cursor()
     
-    # First check if chat exists and has messages
-    cursor.execute("SELECT COUNT(*) FROM chat_message_join WHERE chat_id = ?", (chat_id,))
-    count = cursor.fetchone()[0]
-    print(f"Debug: Found {count} message links for chat {chat_id}")
-    
     query = """
     SELECT 
         m.text,
@@ -69,7 +80,6 @@ def get_messages(chat_id, limit=100):
     
     cursor.execute(query, (chat_id, limit))
     messages = cursor.fetchall()
-    print(f"Debug: Retrieved {len(messages)} total messages")
     conn.close()
     
     # Reverse to get chronological order
@@ -78,24 +88,7 @@ def get_messages(chat_id, limit=100):
     # Format messages
     formatted_messages = []
     for text, attributed_body, is_from_me, date, sender_id in messages:
-        # Extract text from attributed body if text is empty
-        message_text = text
-        if not message_text and attributed_body:
-            try:
-                # Try to decode attributed body - it's a binary plist
-                decoded = attributed_body.decode('utf-8', errors='ignore')
-                # Extract text between common markers
-                if 'NSString' in decoded:
-                    # Simple extraction - find text after NSString markers
-                    parts = decoded.split('NSString')
-                    for part in parts[1:]:
-                        # Look for readable text
-                        cleaned = ''.join(c for c in part if c.isprintable())
-                        if len(cleaned) > 2:
-                            message_text = cleaned[:200]  # Take first chunk
-                            break
-            except:
-                pass
+        message_text = text or extract_text_from_attributed_body(attributed_body)
         
         if not message_text:
             continue
@@ -111,7 +104,6 @@ def get_messages(chat_id, limit=100):
             'is_from_me': is_from_me
         })
     
-    print(f"Debug: Extracted {len(formatted_messages)} messages with readable text")
     return formatted_messages
 
 def summarize_messages(messages, api_key):

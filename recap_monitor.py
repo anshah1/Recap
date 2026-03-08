@@ -252,10 +252,10 @@ def send_imessage(chat_identifier, message, is_group_chat=False):
 
 def monitor_loop():
     print("Recap Monitor Starting...")
-    print("Waiting 15 seconds for Messages DB to sync...\n")
+    print("Waiting 10 seconds for Messages DB to sync...\n")
     
     # Startup buffer to let Messages DB settle after boot/wake
-    time.sleep(15)
+    time.sleep(10)
     
     print("Watching for @recap mentions in iMessage\n")
     
