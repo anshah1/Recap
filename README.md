@@ -227,7 +227,7 @@ When a model hits its rate limit, the bot automatically switches to the next mod
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Service won't start
 
@@ -311,7 +311,7 @@ Re-install the service:
 
 ---
 
-## 📝 License
+## License
 
 MIT
 
