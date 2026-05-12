@@ -1,8 +1,8 @@
-# 📝 Recap - iMessage Chat Summarizer
+# Recap - iMessage Chat Summarizer
 
 Automatically summarize iMessage conversations using Gemini AI. Anyone in your chats can type `@recap`, and get an instant AI-generated summary sent right back to you.
 
-## 🚀 Usage
+## Usage
 
 Once set up, anyone in any iMessage conversation with you can use Recap:
 
@@ -21,19 +21,19 @@ Gets a summary of the last 60 messages
 Summarizes the last 100 messages (range: 10-500)
 
 The bot will:
-1. ✅ Detect a @recap mention in your messages
-2. 📚 Fetch the requested number of recent messages  
-3. 🤖 Generate an AI summary using Gemini
-4. 💬 Send the summary back to the chat automatically
+1. Detect a @recap mention in your messages
+2. Fetch the requested number of recent messages  
+3. Generate an AI summary using Gemini
+4. Send the summary back to the chat automatically
 
 **Example output:**
 ```
-📝 Chat Recap:
+Chat Recap:
 
 The conversation centered around coordinating study plans for the upcoming EECS 281 
 midterm. Multiple participants expressed concerns about the difficulty of priority queue
 free response problems. One member suggested forming a study group at "the UGLI" tomorrow 
-at 6 PM, but another pointed out that because it's a Friday, they would have to take 
+at 6 PM, but another pointed out that because it's a Friday, the UGLI closes early and they would have to take 
 "Commuter North" to "The Dude".
 ```
 
@@ -51,7 +51,7 @@ The monitor runs automatically in the background when your Mac is on. To manage 
 
 ---
 
-## 🛠️ Setup Guide
+## Setup Guide
 
 ### Prerequisites
 
@@ -107,7 +107,7 @@ GEMINI_API_KEY=your_api_key_here
 
 1. Open **System Settings** (or System Preferences on older macOS)
 2. Go to **Privacy & Security** → **Full Disk Access**
-3. Click the **🔒 lock** icon and authenticate
+3. Click the ** lock** icon and authenticate
 4. Click the **+** button
 5. Press **`Cmd+Shift+G`** to open "Go to folder"
 6. Paste the path to your Python binary (replace `YOUR_USERNAME` and adjust the path if you cloned elsewhere):
@@ -134,9 +134,9 @@ chmod +x service.sh
 
 You should see:
 ```
-📦 Installing Recap Monitor service...
-✅ Service installed and started
-   Will auto-start on login/boot
+Installing Recap Monitor service...
+Service installed and started
+Will auto-start on login/boot
 ```
 
 ### Step 6: Verify Installation
@@ -149,14 +149,14 @@ Check that everything is working:
 
 Expected output:
 ```
-✅ Recap Monitor is running
+Recap Monitor is running
 
-📋 Recent logs:
-🤖 Recap Monitor Starting...
-   Watching for @recap mentions in iMessage
+Recent logs:
+Recap Monitor Starting...
+Watching for @recap mentions in iMessage
 
-📍 Monitoring started (message ID: 456701)
-   Press Ctrl+C to stop
+Monitoring started (message ID: 456701)
+Press Ctrl+C to stop
 ```
 
 If you see errors about "unable to open database file", review Step 4 above.
@@ -237,10 +237,10 @@ When a model hits its rate limit, the bot automatically switches to the next mod
 ```
 
 **Common issues:**
-- ❌ "unable to open database file" → Grant Full Disk Access (Step 4a)
-- ❌ "GEMINI_API_KEY not found" → Check your `.env` file (Step 3)
-- ❌ "ImportError: No module named google" → Run `./setup.sh` again
-- ❌ "All models rate limited" → Wait a few minutes, or check your API quota at https://aistudio.google.com/
+- "unable to open database file" → Grant Full Disk Access (Step 4a)
+- "GEMINI_API_KEY not found" → Check your `.env` file (Step 3)
+- "ImportError: No module named google" → Run `./setup.sh` again
+- "All models rate limited" → Wait a few minutes, or check your API quota at https://aistudio.google.com/
 
 ### Bot not responding to @recap
 
@@ -271,7 +271,7 @@ Re-install the service:
 
 ---
 
-## 🔒 Security & Privacy
+## Security & Privacy
 
 - **Local Processing:** All message data stays on your Mac
 - **API Calls:** Only message text is sent to Google Gemini API
@@ -294,7 +294,7 @@ Re-install the service:
 
 ---
 
-## 🎯 How It Works
+## How It Works
 
 1. **Database Monitoring:** Polls Messages DB every 2 seconds for new messages
 2. **Mention Detection:** Looks for "@recap" in message text
